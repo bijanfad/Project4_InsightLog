@@ -273,7 +273,13 @@ class InsightLogAnalyzer:
         :return:
         """
         # BUG: This method does not remove by index
-        self.__filters.remove(index)
+        #This is the firs bug which is resolved by Bijan
+        if not isinstance(index, int):
+            raise TypeError("index must be an int")
+        try:
+            self.__filters.pop(index)
+        except IndexError:
+            raise IndexError("filter index out of range")
 
     def clear_all_filters(self):
         """
