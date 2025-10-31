@@ -106,54 +106,101 @@ def check_match(line, filter_pattern, is_regex, is_casesensitive, is_reverse):
     return check_result and not is_reverse
 
 
-def get_web_requests(data, pattern, date_pattern=None, date_keys=None):
+def get_web_requests(data, pattern, date_pattern=None, date_keys=None, collect_stats=False):
     """
     Analyze data (from the logs) and return list of requests formatted as the model (pattern) defined.
     :param data: string
     :param pattern: string
     :param date_pattern: regex|None
     :param date_keys: dict|None
-    :return: list
+    :return: list  |  (list, {'malformed_lines': int}) if collect_stats=True
     """
     # BUG: Output format inconsistent with get_auth_requests
     # BUG: No handling/logging for malformed lines
+    # Handle malformed lines by counting lines that don't match the pattern.
     if date_pattern and not date_keys:
         raise Exception("date_keys is not defined")
-    requests_dict = re.findall(pattern, data, flags=re.IGNORECASE)
+    # requests_dict = re.findall(pattern, data, flags=re.IGNORECASE)
+    # requests = []
+    # for request_tuple in requests_dict:
+    #     if date_pattern:
+    #         str_datetime = __get_iso_datetime(request_tuple[1], date_pattern, date_keys)
+    #     else:
+    #         str_datetime = request_tuple[1]
+    #     requests.append({'DATETIME': str_datetime, 'IP': request_tuple[0],
+    #                      'METHOD': request_tuple[2], 'ROUTE': request_tuple[3], 'CODE': request_tuple[4],
+    #                      'REFERRER': request_tuple[5], 'USERAGENT': request_tuple[6]})
+    # return requests
     requests = []
-    for request_tuple in requests_dict:
+    malformed = 0
+    regex = re.compile(pattern, flags=re.IGNORECASE)
+    for line in data.splitlines():
+        m = regex.search(line)
+        if not m:
+            if line.strip():  # ignore blank lines
+                malformed += 1
+            continue
+        request_tuple = m.groups()
         if date_pattern:
             str_datetime = __get_iso_datetime(request_tuple[1], date_pattern, date_keys)
         else:
             str_datetime = request_tuple[1]
-        requests.append({'DATETIME': str_datetime, 'IP': request_tuple[0],
-                         'METHOD': request_tuple[2], 'ROUTE': request_tuple[3], 'CODE': request_tuple[4],
-                         'REFERRER': request_tuple[5], 'USERAGENT': request_tuple[6]})
-    return requests
+        requests.append({
+            'DATETIME': str_datetime,
+            'IP': request_tuple[0],
+           'METHOD': request_tuple[2],
+            'ROUTE': request_tuple[3],
+            'CODE': request_tuple[4],
+            'REFERRER': request_tuple[5],
+            'USERAGENT': request_tuple[6],
+        })
+    if collect_stats:
+        return requests, {'malformed_lines': malformed}
+    return requests       
 
 
-def get_auth_requests(data, pattern, date_pattern=None, date_keys=None):
+def get_auth_requests(data, pattern, date_pattern=None, date_keys=None, collect_stats=False):
     """
     Analyze data (from the logs) and return list of auth requests formatted as the model (pattern) defined.
     :param data: string
     :param pattern: string
     :param date_pattern:
     :param date_keys:
-    :return: list of dicts
+    :return: list of dicts  |  (list, {'malformed_lines': int}) if collect_stats=True
     """
-    requests_dict = re.findall(pattern, data)
+    # requests_dict = re.findall(pattern, data)
+    # requests = []
+    # for request_tuple in requests_dict:
+    #     if date_pattern:
+    #         str_datetime = __get_iso_datetime(request_tuple[0], date_pattern, date_keys)
+    #     else:
+    #         str_datetime = request_tuple[0]
+    #     data = analyze_auth_request(request_tuple[2])
+    #     data['DATETIME'] = str_datetime
+    #     data['SERVICE'] = request_tuple[1]
+    #     requests.append(data)
+    # return requests
     requests = []
-    for request_tuple in requests_dict:
+    malformed = 0
+    regex = re.compile(pattern)
+    for line in data.splitlines():
+        m = regex.search(line)
+        if not m:
+            if line.strip():
+                malformed += 1
+            continue
+        request_tuple = m.groups()
         if date_pattern:
             str_datetime = __get_iso_datetime(request_tuple[0], date_pattern, date_keys)
         else:
             str_datetime = request_tuple[0]
-        data = analyze_auth_request(request_tuple[2])
-        data['DATETIME'] = str_datetime
-        data['SERVICE'] = request_tuple[1]
-        requests.append(data)
+        item = analyze_auth_request(request_tuple[2])
+        item['DATETIME'] = str_datetime
+        item['SERVICE'] = request_tuple[1]
+        requests.append(item)
+    if collect_stats:
+        return requests, {'malformed_lines': malformed}
     return requests
-
 
 def analyze_auth_request(request_info):
     """
