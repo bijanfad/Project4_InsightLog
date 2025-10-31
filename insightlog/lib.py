@@ -106,32 +106,91 @@ def check_match(line, filter_pattern, is_regex, is_casesensitive, is_reverse):
     return check_result and not is_reverse
 
 
+# def get_web_requests(data, pattern, date_pattern=None, date_keys=None):
+    """
+   #  Analyze data (from the logs) and return list of requests formatted as the model (pattern) defined.
+   #  :param data: string
+   #  :param pattern: string
+   #  :param date_pattern: regex|None
+   #  :param date_keys: dict|None
+   #  :return: list
+   #  """
+   #  # BUG: Output format inconsistent with get_auth_requests
+   #  # BUG: No handling/logging for malformed lines
+   #  if date_pattern and not date_keys:
+   #      raise Exception("date_keys is not defined")
+   #  requests_dict = re.findall(pattern, data, flags=re.IGNORECASE)
+   #  requests = []
+    # for request_tuple in requests_dict:
+    #     if date_pattern:
+       #      str_datetime = __get_iso_datetime(request_tuple[1], date_pattern, date_keys)
+      #   else:
+      #       str_datetime = request_tuple[1]
+     #    requests.append({'DATETIME': str_datetime, 'IP': request_tuple[0],
+      #                    'METHOD': request_tuple[2], 'ROUTE': request_tuple[3], 'CODE': request_tuple[4],
+        #                  'REFERRER': request_tuple[5], 'USERAGENT': request_tuple[6]})
+    # return requests
+    
+    
+                                 
+    #___________________________________________revised version:___________________________________________________________
+
+
 def get_web_requests(data, pattern, date_pattern=None, date_keys=None):
     """
-    Analyze data (from the logs) and return list of requests formatted as the model (pattern) defined.
+    Analyze data (from the logs) and return list of requests formatted consistently
+    with get_auth_requests output.
+    
     :param data: string
     :param pattern: string
     :param date_pattern: regex|None
     :param date_keys: dict|None
-    :return: list
+    :return: list of dict
     """
-    # BUG: Output format inconsistent with get_auth_requests
-    # BUG: No handling/logging for malformed lines
     if date_pattern and not date_keys:
         raise Exception("date_keys is not defined")
-    requests_dict = re.findall(pattern, data, flags=re.IGNORECASE)
+
     requests = []
+    malformed_count = 0
+    requests_dict = re.findall(pattern, data, flags=re.IGNORECASE)
+
     for request_tuple in requests_dict:
-        if date_pattern:
-            str_datetime = __get_iso_datetime(request_tuple[1], date_pattern, date_keys)
-        else:
-            str_datetime = request_tuple[1]
-        requests.append({'DATETIME': str_datetime, 'IP': request_tuple[0],
-                         'METHOD': request_tuple[2], 'ROUTE': request_tuple[3], 'CODE': request_tuple[4],
-                         'REFERRER': request_tuple[5], 'USERAGENT': request_tuple[6]})
+        try:
+            # Ensure tuple has expected length
+            if len(request_tuple) < 7:
+                malformed_count += 1
+                continue
+
+            if date_pattern:
+                str_datetime = __get_iso_datetime(request_tuple[1], date_pattern, date_keys)
+            else:
+                str_datetime = request_tuple[1]
+
+            # Create consistent output format with get_auth_requests
+            request_entry = {
+                'DATETIME': str_datetime,
+                'IP': request_tuple[0],
+                'USER': '-',  # Web logs typically don't have user info, use placeholder
+                'METHOD': request_tuple[2],  # Keep original METHOD key for web requests
+                'ROUTE': request_tuple[3],
+                'CODE': request_tuple[4],    # Keep original CODE key for web requests
+                'REFERRER': request_tuple[5],
+                'USERAGENT': request_tuple[6],
+            }
+
+            requests.append(request_entry)
+
+        except Exception:
+            malformed_count += 1
+            continue
+
+    if malformed_count > 0:
+        print(f"⚠️ Skipped {malformed_count} malformed log lines")
+
     return requests
-
-
+    
+    #---------------------------------------End of revised version-------------------------------------
+   
 def get_auth_requests(data, pattern, date_pattern=None, date_keys=None):
     """
     Analyze data (from the logs) and return list of auth requests formatted as the model (pattern) defined.
