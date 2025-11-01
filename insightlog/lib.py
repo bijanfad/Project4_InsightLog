@@ -77,7 +77,8 @@ def filter_data(log_filter, data=None, filepath=None, is_casesensitive=True, is_
             #     for line in file_object:
             #         if check_match(line, log_filter, is_regex, is_casesensitive, is_reverse):
             #             return_data += line
-            with _open_text_with_fallback(filepath) as file_object:
+            with open(filepath, "r", encoding="utf-8", errors="replace") as file_object:
+            # with _open_text_with_fallback(filepath) as file_object:
                 for line in file_object:
                     if check_match(line, log_filter, is_regex, is_casesensitive, is_reverse):
                         return_data += line

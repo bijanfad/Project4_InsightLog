@@ -162,5 +162,38 @@ class TestInsightLog(TestCase):
 
         self.assertEqual(n2, n1, "Malformed line should be ignored, not counted")
 
+    #TestUnit BUG #6
+    def test_file_encoding_handling(self):
+        """
+        BUG #6: Ensure non-UTF-8 files don't crash and can be filtered.
+        The file is written as Latin-1 and includes a non-ASCII character.
+        """
+        # Minimal nginx-like lines; second line has a non-ASCII char in Latin-1
+        lines = [
+            '192.0.2.1 - - [16/Jan/2016:13:13:37 +0000] "GET / HTTP/1.1" 200 123\n',
+            '198.51.100.7 - - [16/Jan/2016:13:13:38 +0000] "GET / café HTTP/1.1" 404 0\n',  # café (é in latin-1)
+        ]
+        content = ''.join(lines).encode('latin-1')  # write as NON-UTF-8
 
+        with tempfile.NamedTemporaryFile(delete=True) as tmp:
+            tmp.write(content)
+            tmp.flush()
+
+            # 1) Core assertion: filter_data must not crash on non-UTF-8 input
+            out = filter_data('192.0.2.1', filepath=tmp.name)
+            self.assertIsInstance(out, str, "Should return a string, not None/bytes")
+            # Should contain exactly the matching line
+            self.assertIn('192.0.2.1', out)
+            self.assertTrue(out.strip().endswith('"GET / HTTP/1.1" 200 123'),
+                            "Returned line content should be intact for the matching line")
+
+            # 2) Optional: analyzer path also must not crash
+            analyzer = InsightLogAnalyzer('nginx', filepath=tmp.name)
+            analyzer.add_filter('198.51.100.7')
+            res = analyzer.filter_all()
+            # We don't assert the exact non-ASCII character; some fixes use errors='replace'
+            self.assertIn('198.51.100.7', res)
+            self.assertIn('GET / ', res)  # general shape still present
+
+            
 # TODO: Add more tests for edge cases and error handling
