@@ -3,6 +3,7 @@ from unittest import TestCase
 from insightlog.lib import *
 import csv
 import tempfile
+from insightlog.lib import InsightLogAnalyzer
 
 
 class TestInsightLog(TestCase):
@@ -131,6 +132,35 @@ class TestInsightLog(TestCase):
                 rows = list(reader)
             self.assertEqual(len(rows), 2)
             self.assertTrue({'DATETIME','IP','METHOD','ROUTE','CODE','REFERRER','USERAGENT'}.issubset(rows[0].keys()))
+    #UnitTest for BUG #5
+    def test_auth_only_malformed_lines_returns_empty_list(self):
+        """
+        If the input contains only malformed lines, parsing should not raise
+        and should return an empty list.
+        """
+        malformed = "TotallyWrongFormat without date host or process\nAnother bad line"
+        analyzer = InsightLogAnalyzer('auth', data=malformed)
+        requests = analyzer.get_requests()
+        self.assertIsInstance(requests, list)
+        self.assertEqual(len(requests), 0)
+
+    def test_auth_malformed_lines_are_ignored_among_valid(self):
+        """
+        Mixing a malformed line into a valid auth log should not change the
+        number of parsed requests (malformed line is ignored).
+        """
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        auth_logfile = os.path.join(base_dir, 'logs-samples/auth.sample')
+
+        with open(auth_logfile, 'r', encoding='utf-8') as f:
+            original = f.read()
+        a1 = InsightLogAnalyzer('auth', data=original)
+        n1 = len(a1.get_requests())
+        mixed = original + "\nTHIS IS A MALFORMED LINE WITH NO MATCHING FIELDS\n"
+        a2 = InsightLogAnalyzer('auth', data=mixed)
+        n2 = len(a2.get_requests())
+
+        self.assertEqual(n2, n1, "Malformed line should be ignored, not counted")
 
 
 # TODO: Add more tests for edge cases and error handling
