@@ -375,44 +375,99 @@ class InsightLogAnalyzer:
             to_return = tmp_result if to_return is None else (tmp_result and to_return)
         return to_return
 
-    def filter_all(self):
+    # def filter_all(self):
+    #     """
+    #     Apply all defined patterns and return filtered data
+    #     :return: string
+    #     """
+    #     # BUG: Large files are read into memory at once (performance issue)
+    #     # BUG: No warning or log for empty files
+    #     to_return = ""
+    #     if self.data:
+    #         for line in self.data.splitlines():
+    #             if self.check_all_matches(line, self.__filters):
+    #                 to_return += line+"\n"
+    #     else:
+    #         # with open(self.filepath, 'r') as file_object:
+    #         # FIX (#6): use encoding fallbacks to avoid UnicodeDecodeError
+    #         with _open_text_with_fallback(self.filepath) as file_object:
+    #             for line in file_object:
+    #                 if self.check_all_matches(line, self.__filters):
+    #                     to_return += line
+    #     return to_return
+
+    def iter_filtered_lines(self):
         """
-        Apply all defined patterns and return filtered data
-        :return: string
+        Yield filtered lines lazily to avoid large in-memory buffers.
         """
-        # BUG: Large files are read into memory at once (performance issue)
-        # BUG: No warning or log for empty files
-        to_return = ""
         if self.data:
-            for line in self.data.splitlines():
+            # data is already in-memory; still iterate without rebuilding strings
+            for line in self.data.splitlines(True):  # keep line endings
                 if self.check_all_matches(line, self.__filters):
-                    to_return += line+"\n"
+                    yield line
         else:
-            # with open(self.filepath, 'r') as file_object:
-            # FIX (#6): use encoding fallbacks to avoid UnicodeDecodeError
-            with _open_text_with_fallback(self.filepath) as file_object:
+            # Encoding errors shouldn't crash analysis (Bug #6); keepends to preserve parsing
+            with open(self.filepath, 'r', encoding='utf-8', errors='replace') as file_object:
                 for line in file_object:
                     if self.check_all_matches(line, self.__filters):
-                        to_return += line
-        return to_return
+                        yield line
+
+    def filter_all(self):
+        """
+        Back-compat helper: return all filtered lines as a single string.
+        Prefer iter_filtered_lines() for streaming.
+        """
+        buf = []
+        append = buf.append
+        for line in self.iter_filtered_lines():
+            append(line)
+        return ''.join(buf)
 
     def get_requests(self):
         """
         Analyze data (from the logs) and return list of auth requests formatted as the model (pattern) defined.
         :return:
         """
+        # # TODO: Add support for CSV and JSON output
+        # data = self.filter_all()
+        # request_pattern = self.__settings['request_model']
+        # date_pattern = self.__settings['date_pattern']
+        # date_keys = self.__settings['date_keys']
+        # if self.__settings['type'] == 'web0':
+        #     return get_web_requests(data, request_pattern, date_pattern, date_keys)
+        # elif self.__settings['type'] == 'auth':
+        #     return get_auth_requests(data, request_pattern, date_pattern, date_keys)
+        # else:
+        #     # TODO: Support more log formats (e.g., IIS, custom logs)
+        #     return None
+
         # TODO: Add support for CSV and JSON output
-        data = self.filter_all()
+        # Stream in bounded chunks to keep memory flat even on huge files.
         request_pattern = self.__settings['request_model']
-        date_pattern = self.__settings['date_pattern']
-        date_keys = self.__settings['date_keys']
-        if self.__settings['type'] == 'web0':
-            return get_web_requests(data, request_pattern, date_pattern, date_keys)
-        elif self.__settings['type'] == 'auth':
-            return get_auth_requests(data, request_pattern, date_pattern, date_keys)
-        else:
-            # TODO: Support more log formats (e.g., IIS, custom logs)
-            return None
+        date_pattern = self.__settings.get('date_pattern')
+        date_keys = self.__settings.get('date_keys')
+
+        CHUNK_LINES = 10000
+        chunk = []
+        requests = []
+        extend = requests.extend
+
+        def flush_chunk():
+            if not chunk:
+                return
+            data_block = ''.join(chunk)
+            if self.__settings['type'] == 'web0':
+                extend(get_web_requests(data_block, request_pattern, date_pattern, date_keys))
+            elif self.__settings['type'] == 'auth':
+                extend(get_auth_requests(data_block, request_pattern, date_pattern, date_keys))
+            chunk.clear()
+
+        for line in self.iter_filtered_lines():
+            chunk.append(line)
+            if len(chunk) >= CHUNK_LINES:
+                flush_chunk()
+        flush_chunk()
+        return requests
 
     # TODO: Add log level filtering (e.g., only errors)
     def add_log_level_filter(self, level):
