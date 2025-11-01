@@ -194,6 +194,39 @@ class TestInsightLog(TestCase):
             # We don't assert the exact non-ASCII character; some fixes use errors='replace'
             self.assertIn('198.51.100.7', res)
             self.assertIn('GET / ', res)  # general shape still present
+    
+    # UnitTest BUG #7
+    def test_large_nginx_file_streaming(self):
+        """
+        BUG #7: Ensure very large log files are processed without loading
+        everything into memory at once.
+        The test creates a large temporary nginx log file and checks that all
+        lines are parsed correctly without errors.
+        """
+        import tempfile
+        import os
 
-            
+        sample_line = (
+            '192.168.0.1 - - [24/Apr/2016:06:26:37 +0000] '
+            '"GET / HTTP/1.1" 200 612 "-" "daedalu5"\n'
+        )
+        repeat_count = 50_000  # ~5–7 MB file; enough to catch non-streaming issues
+
+        with tempfile.NamedTemporaryFile('w+', delete=False) as tmp:
+            tmp_path = tmp.name
+            tmp.writelines(sample_line for _ in range(repeat_count))
+
+        try:
+            analyzer = InsightLogAnalyzer('nginx', filepath=tmp_path)
+            analyzer.add_filter('192.168.0.1')
+            results = analyzer.get_requests()
+
+            # Verify all lines are parsed and fields are correct
+            self.assertEqual(len(results), repeat_count)
+            self.assertEqual(results[0]['IP'], '192.168.0.1')
+            self.assertEqual(results[0]['METHOD'], 'GET')
+        finally:
+            os.remove(tmp_path)
+
+
 # TODO: Add more tests for edge cases and error handling
