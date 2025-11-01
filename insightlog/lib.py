@@ -4,6 +4,8 @@ from insightlog.settings import *
 from insightlog.validators import *
 from datetime import datetime
 from typing import Iterable, TextIO
+import os
+import csv
 
 
 
@@ -489,9 +491,30 @@ class InsightLogAnalyzer:
     # TODO: Add export to CSV
     def export_to_csv(self, path):
         """
-        Export filtered results to a CSV file
+        Export filtered results to a CSV file.
+        Returns the number of rows written.
         :param path: string
         """
-        pass  # Feature stub
+        rows = self.get_requests() or []
+
+        # Ensure parent folder exists (if a folder is provided)
+        folder = os.path.dirname(path)
+        if folder:
+            os.makedirs(folder, exist_ok=True)
+
+        # If there are no rows, write an empty file with no header and return 0
+        if not rows:
+            # still create/overwrite the file so the caller gets a tangible result
+            with open(path, "w", encoding="utf-8", newline="") as f:
+                pass
+            return 0
+
+        fieldnames = list(rows[0].keys())
+        with open(path, "w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+
+        return len(rows)
 
 # TODO: Write more tests for edge cases, error handling, and malformed input

@@ -1,6 +1,8 @@
 import os
 from unittest import TestCase
 from insightlog.lib import *
+import csv
+import tempfile
 
 
 class TestInsightLog(TestCase):
@@ -101,6 +103,7 @@ class TestInsightLog(TestCase):
         requests = nginx_logsanalyzer.get_requests()
         self.assertEqual(len(requests), 2, "LogsAnalyzer#2")
 
+   
     def test_remove_filter_bug(self):
         analyzer = InsightLogAnalyzer('nginx')
         analyzer.add_filter('test1')
@@ -112,5 +115,22 @@ class TestInsightLog(TestCase):
         self.assertEqual(filters[0]['filter_pattern'], 'test1')
         self.assertEqual(filters[1]['filter_pattern'], 'test3')
         # The bug: remove_filter currently tries to remove by value, not index
+
+    #UnitTest for export CSV
+    def test_export_to_csv(self):    
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        nginx_logfile = os.path.join(base_dir, 'logs-samples/nginx1.sample')
+        an = InsightLogAnalyzer('nginx', filepath=nginx_logfile)
+        an.add_filter('192.10.1.1') 
+        with tempfile.TemporaryDirectory() as tmp:
+            out_path = os.path.join(tmp, "export.csv")
+            written = an.export_to_csv(out_path)
+            self.assertEqual(written, 2)
+            with open(out_path, newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+            self.assertEqual(len(rows), 2)
+            self.assertTrue({'DATETIME','IP','METHOD','ROUTE','CODE','REFERRER','USERAGENT'}.issubset(rows[0].keys()))
+
 
 # TODO: Add more tests for edge cases and error handling
