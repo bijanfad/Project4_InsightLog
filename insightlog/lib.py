@@ -3,6 +3,8 @@ import calendar
 from insightlog.settings import *
 from insightlog.validators import *
 from datetime import datetime
+from typing import Iterable, TextIO
+
 
 
 def get_service_settings(service_name):
@@ -65,10 +67,15 @@ def filter_data(log_filter, data=None, filepath=None, is_casesensitive=True, is_
     # BUG: This function returns None on error instead of raising
     # BUG: No encoding handling in file reading (may crash on non-UTF-8 files)
     # TODO: Log errors/warnings instead of print
+    # FIX (#6): add encoding handling and fallbacks to avoid UnicodeDecodeError on non-UTF-8 files
     return_data = ""
     if filepath:
         try:
-            with open(filepath, 'r') as file_object:
+            # with open(filepath, 'r') as file_object:
+            #     for line in file_object:
+            #         if check_match(line, log_filter, is_regex, is_casesensitive, is_reverse):
+            #             return_data += line
+            with _open_text_with_fallback(filepath) as file_object:
                 for line in file_object:
                     if check_match(line, log_filter, is_regex, is_casesensitive, is_reverse):
                         return_data += line
@@ -87,6 +94,24 @@ def filter_data(log_filter, data=None, filepath=None, is_casesensitive=True, is_
         # TODO: Better error message for missing data/filepath
         raise Exception("Data and filepath values are NULL!")
 
+def _open_text_with_fallback(path: str, encodings: Iterable[str] = ("utf-8","utf-8-sig","cp1252","latin-1")) -> TextIO:
+    """
+    Open a text file trying multiple encodings before falling back to 'errors=replace'.
+    Returns a file object ready for iteration.
+    """
+    last_err = None
+    for enc in encodings:
+        try:
+            return open(path, "r", encoding=enc)
+        except UnicodeDecodeError as ue:
+            last_err = ue
+            continue
+    # Final safe fallback: do not crash; replace undecodable bytes
+    try:
+        return open(path, "r", encoding="utf-8", errors="replace")
+    except Exception as e:
+        # Propagate non-decode errors (e.g., file not found) to caller
+        raise e from last_err
 
 def check_match(line, filter_pattern, is_regex, is_casesensitive, is_reverse):
     """
@@ -363,7 +388,9 @@ class InsightLogAnalyzer:
                 if self.check_all_matches(line, self.__filters):
                     to_return += line+"\n"
         else:
-            with open(self.filepath, 'r') as file_object:
+            # with open(self.filepath, 'r') as file_object:
+            # FIX (#6): use encoding fallbacks to avoid UnicodeDecodeError
+            with _open_text_with_fallback(self.filepath) as file_object:
                 for line in file_object:
                     if self.check_all_matches(line, self.__filters):
                         to_return += line
