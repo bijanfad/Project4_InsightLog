@@ -10,6 +10,7 @@ import csv
 
 
 def get_service_settings(service_name):
+
     """
     Get default settings for the said service
     :param service_name: service name (example: nginx, apache2...)
@@ -18,7 +19,8 @@ def get_service_settings(service_name):
     if service_name in SERVICES_SWITCHER:
         return SERVICES_SWITCHER.get(service_name)
     else:
-        raise Exception("Service \""+service_name+"\" doesn't exists!")
+        raise Exception(f'Service "{service_name}" doesn\'t exists!')
+        
 
 
 def get_date_filter(settings, minute=datetime.now().minute, hour=datetime.now().hour,
