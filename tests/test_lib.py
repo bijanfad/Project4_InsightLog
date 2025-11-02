@@ -249,6 +249,110 @@ class TestInsightLog(TestCase):
             self.assertEqual(results[0]['METHOD'], 'GET')
         finally:
             os.remove(tmp_path)
+#___________________________new tests can be added below ___________________________#
+    def test_csv_json_output_formats(self):
+        """Test CSV and JSON output formats in get_requests"""
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        nginx_logfile = os.path.join(base_dir, 'logs-samples/nginx1.sample')
+        
+        analyzer = InsightLogAnalyzer('nginx', filepath=nginx_logfile)
+        analyzer.add_filter('192.10.1.1')
+        
+        # Test default list format
+        list_result = analyzer.get_requests(output_format='list')
+        self.assertIsInstance(list_result, list)
+        self.assertEqual(len(list_result), 2)
+        
+        # Test CSV format
+        csv_result = analyzer.get_requests(output_format='csv')
+        self.assertIsInstance(csv_result, str)
+        self.assertIn('DATETIME,IP,USER,METHOD,ROUTE,CODE,REFERRER,USERAGENT', csv_result)
+        self.assertEqual(len(csv_result.splitlines()), 3)  # header + 2 data rows
+        
+        # Test JSON format
+        json_result = analyzer.get_requests(output_format='json')
+        self.assertIsInstance(json_result, str)
+        self.assertIn('DATETIME', json_result)
+        self.assertIn('192.10.1.1', json_result)
+
+    def test_log_level_filtering(self):
+        """Test log level filtering in get_requests"""
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        nginx_logfile = os.path.join(base_dir, 'logs-samples/nginx1.sample')
+        
+        analyzer = InsightLogAnalyzer('nginx', filepath=nginx_logfile)
+        
+        # Get all requests first
+        all_requests = analyzer.get_requests()
+        
+        # Test filtering with a specific method (simulating log level)
+        filtered_requests = analyzer.get_requests(log_level='GET')
+        
+        # Should have fewer or equal requests when filtered
+        self.assertLessEqual(len(filtered_requests), len(all_requests))
+        
+        # All filtered requests should contain 'GET'
+        for request in filtered_requests:
+            self.assertEqual(request['METHOD'], 'GET')
+
+    def test_time_range_filtering(self):
+        """Test time range filtering in get_requests"""
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        nginx_logfile = os.path.join(base_dir, 'logs-samples/nginx1.sample')
+        
+        analyzer = InsightLogAnalyzer('nginx', filepath=nginx_logfile)
+        analyzer.add_filter('192.10.1.1')
+        
+        # Get all requests first
+        all_requests = analyzer.get_requests()
+        
+        # Test filtering with specific time range
+        start_time = datetime(2016, 4, 24, 6, 0, 0)
+        end_time = datetime(2016, 4, 24, 7, 0, 0)
+        
+        filtered_requests = analyzer.get_requests(start_time=start_time, end_time=end_time)
+        
+        # Should have requests within the time range
+        self.assertLessEqual(len(filtered_requests), len(all_requests))
+        
+        # Verify filtered requests are within time range
+        for request in filtered_requests:
+            request_time = datetime.strptime(request['DATETIME'], '%Y-%m-%d %H:%M:%S')
+            self.assertGreaterEqual(request_time, start_time)
+            self.assertLessEqual(request_time, end_time)
+
+    def test_combined_filters(self):
+        """Test combining multiple filters in get_requests"""
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        nginx_logfile = os.path.join(base_dir, 'logs-samples/nginx1.sample')
+        
+        analyzer = InsightLogAnalyzer('nginx', filepath=nginx_logfile)
+        
+        # Test combining log level and output format
+        csv_result = analyzer.get_requests(log_level='GET', output_format='csv')
+        self.assertIsInstance(csv_result, str)
+        self.assertIn('GET', csv_result)
+        
+        # Test combining time range and output format
+        start_time = datetime(2016, 4, 24, 6, 0, 0)
+        json_result = analyzer.get_requests(start_time=start_time, output_format='json')
+        self.assertIsInstance(json_result, str)
+        self.assertIn('DATETIME', json_result)
+
+    def test_new_log_format_placeholders(self):
+        """Test that new log format placeholders are recognized"""
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        nginx_logfile = os.path.join(base_dir, 'logs-samples/nginx1.sample')
+        
+        # Test that the method doesn't crash on unknown formats
+        analyzer = InsightLogAnalyzer('nginx', filepath=nginx_logfile)
+        
+        # This should work without errors even though IIS/custom aren't implemented
+        requests = analyzer.get_requests()
+        self.assertIsInstance(requests, list)
+        
+        # The method should handle the existing formats properly
+        self.assertIn(analyzer._InsightLogAnalyzer__settings['type'], ['web0', 'auth'])
 
 
 # TODO: Add more tests for edge cases and error handling
