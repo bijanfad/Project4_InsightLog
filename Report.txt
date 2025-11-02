@@ -1,0 +1,283 @@
+#	Type								Responsible	Status
+1	BUG								Bijan	Fixed
+2	BUG								Haydi	
+3	BUG								Weis	Fixed
+4	BUG								Kofi	
+5	BUG								Bijan	Fixed
+6	BUG								Bijan	Fixed
+7	BUG								Bijan	Fixed
+8	TODO: Add CSV export feature					Bijan	Done
+9	TODO: Log errors/warnings instead of printing		
+10	TODO: Log error instead of printing (I/O error handling)		
+11	TODO: Better error message for missing data/filepath		
+12	TODO: Add support for analysis in different terms (metrics, summaries)		
+13	TODO: Add support for CSV and JSON output			Bijan	Csv done, json open
+14	TODO: Support more log formats (IIS, custom logs)		
+15	TODO: Add log level filtering (only errors/warnings)		
+16	TODO: Add support for time-range filtering		
+17	TODO: Write more tests for edge cases and errors		Bijan	New tests added for malformed lines, encoding, CSV, filter removal.
+
+
+
+
+
+
+
+BUG #1 
+remove_filter does not remove by index
+Explain the bug 
+In the old code, removing by index didn’t work—it tried to remove the value equal to 1 from the list instead of removing item number 1.
+Identify the cause
+list.remove(x) removes by value, not by position. The base code called remove(index):
+# base: insightlog/lib.py
+def remove_filter(self, index):
+    """
+    Remove one filter from filters list using it's index
+    """
+    # BUG: This method does not remove by index
+    self.__filters.remove(index)
+Describe the fix
+Use pop(index) and basic validation. Now it truly removes the filter at the given position:
+# current: insightlog/lib.py
+def remove_filter(self, index):
+    if not isinstance(index, int):
+        raise TypeError("index must be an int")
+    try:
+        self.__filters.pop(index)
+    except IndexError:
+        raise IndexError("filter index out of range")
+Steps
+1.	Replace self.__filters.remove(index) with self.__filters.pop(index).
+2.	Add type and range checks for clearer errors.
+3.	Add a unit test test_remove_filter_bug to lock the fix.
+
+
+
+
+
+BUG #2
+
+
+
+
+
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+BUG #3 
+get_web_requests output format inconsistent with get_auth_requests 
+Explain the bug
+When you parse Nginx/Apache logs vs. Auth logs, the dictionary keys and shapes should be consistent (e.g., timestamps under DATETIME, IP under IP, etc.). The base version produced slightly mismatched outputs across functions, making downstream code and CSV export harder.
+Identify the cause
+The base function built dictionaries, but the two parsers weren’t aligned (and had no malformed-line strategy):
+# base: insightlog/lib.py
+def get_web_requests(data, pattern, date_pattern=None, date_keys=None):
+    # BUG: Output format inconsistent with get_auth_requests
+    requests_dict = re.findall(pattern, data, flags=re.IGNORECASE)
+    requests = []
+    for request_tuple in requests_dict:
+        if date_pattern:
+            str_datetime = __get_iso_datetime(request_tuple[1], date_pattern, date_keys)
+        else:
+            str_datetime = request_tuple[1]
+        requests.append({'DATETIME': str_datetime, 'IP': request_tuple[0],
+                         'METHOD': request_tuple[2], 'ROUTE': request_tuple[3], 'CODE': request_tuple[4],
+                         'REFERRER': request_tuple[5], 'USERAGENT': request_tuple[6]})
+    return requests
+The auth side packaged fields differently and had no uniform error handling for malformed lines.
+Describe the fix
+Both paths normalize to consistent keys and add optional malformed-line counting:
+# current: insightlog/lib.py
+def get_web_requests(..., collect_stats=False):
+    ...
+    requests = []
+    malformed = 0
+    for m in re.finditer(pattern, data, flags=re.IGNORECASE):
+        if not m:
+            malformed += 1
+            continue
+        request_tuple = m.groups()
+        str_datetime = __get_iso_datetime(request_tuple[1], date_pattern, date_keys) if date_pattern else request_tuple[1]
+        requests.append({
+            'DATETIME': str_datetime,
+            'IP': request_tuple[0],
+            'METHOD': request_tuple[2],
+            'ROUTE': request_tuple[3],
+            'CODE': request_tuple[4],
+            'REFERRER': request_tuple[5],
+            'USERAGENT': request_tuple[6],
+        })
+    return (requests, {'malformed_lines': malformed}) if collect_stats else requests
+Auth side mirrors that shape:
+# current: insightlog/lib.py
+def get_auth_requests(..., collect_stats=False):
+    ...
+    requests = []
+    malformed = 0
+    for m in re.finditer(pattern, data):
+        if not m:
+            malformed += 1
+            continue
+        request_tuple = m.groups()
+        str_datetime = __get_iso_datetime(request_tuple[0], date_pattern, date_keys) if date_pattern else request_tuple[0]
+        item = analyze_auth_request(request_tuple[2])
+        item['DATETIME'] = str_datetime
+        item['SERVICE'] = request_tuple[1]
+        requests.append(item)
+    return (requests, {'malformed_lines': malformed}) if collect_stats else requests
+Steps
+1.	Align key names and shapes between web and auth parsers.
+2.	Switch from plain findall to finditer so malformed lines can be tracked.
+3.	Add optional collect_stats=True return value for diagnostics.
+
+
+
+
+
+
+
+
+BUG #4 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+BUG #5 
+No handling for malformed log lines
+Explain the bug
+Real logs often have broken lines. The analyzer should ignore malformed lines (or count them) instead of crashing or producing wrong data.
+Identify the cause
+Parsing relied on re.findall over whole strings, with no tracking of non-matches. No defensive checks:
+# base: insightlog/lib.py (auth example)
+def analyze_auth_request(request_info):
+    # BUG: No handling/logging for malformed lines
+    ipv4 = re.findall(IPv4_REGEX, request_info)
+    ...
+    return {'IP': ipv4[0] if ipv4 else None, ...}
+Describe the fix
+•	Switched to re.finditer(...) and explicitly skip non-matches while counting malformed lines.
+•	get_web_requests and get_auth_requests now optionally return (list, {'malformed_lines': n}).
+•	Unit tests ensure malformed lines don’t break counts.
+# current: insightlog/lib.py (auth)
+for m in re.finditer(pattern, data):
+    if not m:
+        malformed += 1
+        continue
+    request_tuple = m.groups()
+    ...
+Steps
+1.	Replace findall with finditer in both parsers.
+2.	Add malformed counter.
+3.	Keep returning clean records only.
+4.	Add tests:
+o	test_auth_malformed_lines_are_ignored_among_valid
+o	test_auth_only_malformed_lines_returns_empty_list
+
+
+
+BUG #6 
+No check for file encoding
+Explain the bug
+Some logs aren’t UTF-8. Reading them as UTF-8 would crash with UnicodeDecodeError. The tool must not crash and should read what it can.
+Identify the cause
+Files were opened without any encoding fallback:
+# base: insightlog/lib.py
+with open(self.filepath, 'r') as file_object:
+    for line in file_object:
+        ...
+Describe the fix
+Open files with a safe default and error strategy:
+# current: insightlog/lib.py
+with open(self.filepath, 'r', encoding='utf-8', errors='replace') as file_object:
+    for line in file_object:
+        ...
+This prevents Unicode crashes by replacing undecodable bytes.
+Show the steps
+1.	Add encoding='utf-8', errors='replace' wherever reading text from disk.
+2.	Add a unit test test_file_encoding_handling that writes Latin-1 content (with “café”) and verifies analysis succeeds.
+
+
+
+
+
+
+
+BUG #7 
+Large files are read into memory at once 
+Explain the bug
+For very large log files (hundreds of MBs+), building big strings in memory is slow and can crash the program. We must stream line-by-line.
+Identify the cause
+filter_all() concatenated every matching line into a single huge string; get_requests() then ran regex on that:
+# base: insightlog/lib.py
+def filter_all(self):
+    to_return = ""
+    if self.data:
+        for line in self.data.splitlines():
+            if self.check_all_matches(line, self.__filters):
+                to_return += line+"\n"
+    else:
+        with open(self.filepath, 'r') as file_object:
+            for line in file_object:
+                if self.check_all_matches(line, self.__filters):
+                    to_return += line+"\n"
+
+def get_requests(self):
+    data = self.filter_all()
+    request_pattern = self.__settings['request_model']
+    ...
+    return get_web_requests(data, request_pattern, date_pattern, date_keys)
+Describe the fix
+Introduce streaming:
+# current: insightlog/lib.py
+def iter_filtered_lines(self):
+    if self.data:
+        for line in self.data.splitlines(True):        # keepends
+            if self.check_all_matches(line, self.__filters):
+                yield line
+    else:
+        with open(self.filepath, 'r', encoding='utf-8', errors='replace') as file_object:
+            for line in file_object:
+                if self.check_all_matches(line, self.__filters):
+                    yield line
+Downstream parsing functions operate on streamed text (or build small buffers), so you never accumulate the entire file.
+Steps
+1.	Add iter_filtered_lines() to lazily yield matching lines.
+2.	Stop concatenating strings in filter_all() (deprecate/remove).
+3.	Adjust get_requests() (and CSV export) to use the streaming path.
+4.	Verify with the sample logs and new tests (CSV export still correct).
+
+
