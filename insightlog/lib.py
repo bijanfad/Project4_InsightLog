@@ -138,7 +138,9 @@ def check_match(line, filter_pattern, is_regex, is_casesensitive, is_reverse):
 
 def get_web_requests(data, pattern, date_pattern=None, date_keys=None, collect_stats=False):
     """
-    Analyze data (from the logs) and return list of requests formatted as the model (pattern) defined.
+    Analyze data (from the logs) and return list of requests formatted consistently
+    with get_auth_requests output.
+
     :param data: string
     :param pattern: string
     :param date_pattern: regex|None
@@ -150,17 +152,7 @@ def get_web_requests(data, pattern, date_pattern=None, date_keys=None, collect_s
     # Handle malformed lines by counting lines that don't match the pattern.
     if date_pattern and not date_keys:
         raise Exception("date_keys is not defined")
-    # requests_dict = re.findall(pattern, data, flags=re.IGNORECASE)
-    # requests = []
-    # for request_tuple in requests_dict:
-    #     if date_pattern:
-    #         str_datetime = __get_iso_datetime(request_tuple[1], date_pattern, date_keys)
-    #     else:
-    #         str_datetime = request_tuple[1]
-    #     requests.append({'DATETIME': str_datetime, 'IP': request_tuple[0],
-    #                      'METHOD': request_tuple[2], 'ROUTE': request_tuple[3], 'CODE': request_tuple[4],
-    #                      'REFERRER': request_tuple[5], 'USERAGENT': request_tuple[6]})
-    # return requests
+
     requests = []
     malformed = 0
     regex = re.compile(pattern, flags=re.IGNORECASE)
@@ -178,7 +170,7 @@ def get_web_requests(data, pattern, date_pattern=None, date_keys=None, collect_s
         requests.append({
             'DATETIME': str_datetime,
             'IP': request_tuple[0],
-           'METHOD': request_tuple[2],
+            'METHOD': request_tuple[2],
             'ROUTE': request_tuple[3],
             'CODE': request_tuple[4],
             'REFERRER': request_tuple[5],
@@ -186,7 +178,8 @@ def get_web_requests(data, pattern, date_pattern=None, date_keys=None, collect_s
         })
     if collect_stats:
         return requests, {'malformed_lines': malformed}
-    return requests       
+    return requests
+      
 
 
 def get_auth_requests(data, pattern, date_pattern=None, date_keys=None, collect_stats=False):
