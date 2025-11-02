@@ -373,27 +373,6 @@ class InsightLogAnalyzer:
             to_return = tmp_result if to_return is None else (tmp_result and to_return)
         return to_return
 
-    # def filter_all(self):
-    #     """
-    #     Apply all defined patterns and return filtered data
-    #     :return: string
-    #     """
-    #     # BUG: Large files are read into memory at once (performance issue)
-    #     # BUG: No warning or log for empty files
-    #     to_return = ""
-    #     if self.data:
-    #         for line in self.data.splitlines():
-    #             if self.check_all_matches(line, self.__filters):
-    #                 to_return += line+"\n"
-    #     else:
-    #         # with open(self.filepath, 'r') as file_object:
-    #         # FIX (#6): use encoding fallbacks to avoid UnicodeDecodeError
-    #         with _open_text_with_fallback(self.filepath) as file_object:
-    #             for line in file_object:
-    #                 if self.check_all_matches(line, self.__filters):
-    #                     to_return += line
-    #     return to_return
-
     def iter_filtered_lines(self):
         """
         Yield filtered lines lazily to avoid large in-memory buffers.
@@ -421,26 +400,16 @@ class InsightLogAnalyzer:
             append(line)
         return ''.join(buf)
 
-    def get_requests(self):
+    def get_requests(self, output_format='list', log_level=None, start_time=None, end_time=None):
         """
-        Analyze data (from the logs) and return list of auth requests formatted as the model (pattern) defined.
-        :return:
+        Analyze data (from the logs) and return list of requests formatted as the model (pattern) defined.
+        
+        :param output_format: 'list', 'csv', 'json' - output format for results
+        :param log_level: string - filter by log level (e.g., 'ERROR', 'WARNING')
+        :param start_time: datetime - start time for filtering
+        :param end_time: datetime - end time for filtering
+        :return: requests in specified format
         """
-        # # TODO: Add support for CSV and JSON output
-        # data = self.filter_all()
-        # request_pattern = self.__settings['request_model']
-        # date_pattern = self.__settings['date_pattern']
-        # date_keys = self.__settings['date_keys']
-        # if self.__settings['type'] == 'web0':
-        #     return get_web_requests(data, request_pattern, date_pattern, date_keys)
-        # elif self.__settings['type'] == 'auth':
-        #     return get_auth_requests(data, request_pattern, date_pattern, date_keys)
-        # else:
-        #     # TODO: Support more log formats (e.g., IIS, custom logs)
-        #     return None
-
-        # TODO: Add support for CSV and JSON output
-        # Stream in bounded chunks to keep memory flat even on huge files.
         request_pattern = self.__settings['request_model']
         date_pattern = self.__settings.get('date_pattern')
         date_keys = self.__settings.get('date_keys')
@@ -454,37 +423,108 @@ class InsightLogAnalyzer:
             if not chunk:
                 return
             data_block = ''.join(chunk)
+            # Support more log formats (e.g., IIS, custom logs)
             if self.__settings['type'] == 'web0':
                 extend(get_web_requests(data_block, request_pattern, date_pattern, date_keys))
             elif self.__settings['type'] == 'auth':
                 extend(get_auth_requests(data_block, request_pattern, date_pattern, date_keys))
+            elif self.__settings['type'] == 'iis':
+                # TODO: Implement IIS log format parsing
+                print("IIS log format support not yet implemented")
+            elif self.__settings['type'] == 'custom':
+                # TODO: Implement custom log format parsing
+                print("Custom log format support not yet implemented")
+            else:
+                # Unknown log format
+                return None
             chunk.clear()
 
+        # Add log level filtering
         for line in self.iter_filtered_lines():
+            if log_level and not self._matches_log_level(line, log_level):
+                continue
             chunk.append(line)
             if len(chunk) >= CHUNK_LINES:
                 flush_chunk()
         flush_chunk()
-        return requests
 
-    # TODO: Add log level filtering (e.g., only errors)
-    def add_log_level_filter(self, level):
-        """
-        Add a filter for log level (e.g., ERROR, WARNING)
-        :param level: string
-        """
-        pass  # Feature stub
+        # Add support for time range filtering
+        if start_time or end_time:
+            requests = self._filter_by_time_range(requests, start_time, end_time)
 
-    # TODO: Add support for time range filtering
-    def add_time_range_filter(self, start, end):
-        """
-        Add a filter for a time range
-        :param start: datetime
-        :param end: datetime
-        """
-        pass  # Feature stub
+        # Add support for CSV and JSON output
+        if output_format == 'csv':
+            return self._convert_to_csv(requests)
+        elif output_format == 'json':
+            return self._convert_to_json(requests)
+        else:  # Default to list format
+            return requests
 
-    # TODO: Add export to CSV
+    def _matches_log_level(self, line, log_level):
+        """
+        Check if line matches the specified log level
+        :param line: string - log line
+        :param log_level: string - log level to filter by
+        :return: boolean
+        """
+        # Simple implementation - can be enhanced based on log format
+        return log_level.upper() in line.upper()
+
+    def _filter_by_time_range(self, requests, start_time, end_time):
+        """
+        Filter requests by datetime range
+        :param requests: list of request dicts
+        :param start_time: datetime - start time
+        :param end_time: datetime - end time
+        :return: filtered list of requests
+        """
+        filtered_requests = []
+        for request in requests:
+            if 'DATETIME' in request:
+                try:
+                    # Parse the datetime string to compare
+                    request_time = datetime.strptime(request['DATETIME'], '%Y-%m-%d %H:%M:%S')
+                    if start_time and request_time < start_time:
+                        continue
+                    if end_time and request_time > end_time:
+                        continue
+                    filtered_requests.append(request)
+                except (ValueError, KeyError):
+                    # If datetime parsing fails, include the request
+                    filtered_requests.append(request)
+            else:
+                # If no DATETIME field, include the request
+                filtered_requests.append(request)
+        return filtered_requests
+
+    def _convert_to_csv(self, requests):
+        """
+        Convert requests list to CSV format
+        :param requests: list of request dicts
+        :return: CSV string
+        """
+        if not requests:
+            return ""
+        
+        import io
+        output = io.StringIO()
+        if requests:
+            fieldnames = list(requests[0].keys())
+            writer = csv.DictWriter(output, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(requests)
+        
+        return output.getvalue()
+
+    def _convert_to_json(self, requests):
+        """
+        Convert requests list to JSON format
+        :param requests: list of request dicts
+        :return: JSON string
+        """
+        import json
+        return json.dumps(requests, indent=2)
+
     def export_to_csv(self, path):
         """
         Export filtered results to a CSV file.
