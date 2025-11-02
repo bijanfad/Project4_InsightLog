@@ -134,12 +134,13 @@ def check_match(line, filter_pattern, is_regex, is_casesensitive, is_reverse):
     else:
         check_result = (filter_pattern in line) if is_casesensitive else (filter_pattern.lower() in line.lower())
     return check_result and not is_reverse
-
+                          
 
 def get_web_requests(data, pattern, date_pattern=None, date_keys=None, collect_stats=False):
     """
     Analyze data (from the logs) and return list of requests formatted consistently
     with get_auth_requests output.
+    
 
     :param data: string
     :param pattern: string
@@ -181,6 +182,36 @@ def get_web_requests(data, pattern, date_pattern=None, date_keys=None, collect_s
     return requests
       
 
+    for request_tuple in requests_dict:
+        try:
+            if len(request_tuple) < 7:
+                malformed_count += 1
+                continue
+
+            if date_pattern:
+                str_datetime = __get_iso_datetime(request_tuple[1], date_pattern, date_keys)
+            else:
+                str_datetime = request_tuple[1]
+
+            request_entry = {
+                'DATETIME': str_datetime,
+                'IP': request_tuple[0],
+                'USER': '-',  
+                'METHOD': request_tuple[2],  
+                'ROUTE': request_tuple[3],
+                'CODE': request_tuple[4],    
+                'REFERRER': request_tuple[5],
+                'USERAGENT': request_tuple[6],
+            }
+
+            requests.append(request_entry)
+
+        except Exception:
+            malformed_count += 1
+            continue
+
+    if malformed_count > 0:
+        print(f"⚠️ Skipped {malformed_count} malformed log lines")
 
 def get_auth_requests(data, pattern, date_pattern=None, date_keys=None, collect_stats=False):
     """

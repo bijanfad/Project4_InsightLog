@@ -116,6 +116,28 @@ class TestInsightLog(TestCase):
         self.assertEqual(filters[0]['filter_pattern'], 'test1')
         self.assertEqual(filters[1]['filter_pattern'], 'test3')
         # The bug: remove_filter currently tries to remove by value, not index
+        
+        
+    def test_get_web_requests_consistent_format(self):
+        """Test that get_web_requests returns consistent format with USER field"""
+        nginx_settings = get_service_settings('nginx')
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        file_name = os.path.join(base_dir, 'logs-samples/nginx1.sample')
+        data = filter_data('192.10.1.1', filepath=file_name)
+        requests = get_web_requests(data, nginx_settings['request_model'])
+        
+        self.assertEqual(len(requests), 2, "Should parse 2 requests")
+        
+        first_request = requests[0]
+        expected_keys = ['DATETIME', 'IP', 'USER', 'METHOD', 'ROUTE', 'CODE', 'REFERRER', 'USERAGENT']
+        actual_keys = list(first_request.keys())
+        
+        self.assertEqual(actual_keys, expected_keys, 
+                        f"Web request keys should be {expected_keys}, but got {actual_keys}")
+        
+        self.assertIn('USER', first_request, "Web requests should have USER field")
+        self.assertEqual(first_request['USER'], '-', "USER field should be '-' placeholder for web logs")
+        self.assertEqual(first_request['IP'], '192.10.1.1')
 
     #UnitTest for export CSV
     def test_export_to_csv(self):    
